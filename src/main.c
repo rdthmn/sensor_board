@@ -31,7 +31,8 @@
 ** Global Variables
 ** ------------------------------------------------------------------- */
 float32_t fftInput[FFT_SAMPLES];
-float32_t vibrationOutput[FFT_SIZE];
+float32_t fftOutput[FFT_SIZE];
+uint8_t vibrationOutput[105];
 float32_t filtOutput[FFT_SIZE];
 float32_t filtInput[FFT_SIZE];
 uint32_t blockSize = BLOCK_SIZE;
@@ -41,11 +42,11 @@ uint8_t measureMode = OFF;
 uint16_t sample = 0;
 //FIR filter coefficients calculated in MATLAB using fir1(20, 2kHz/10kHz/2)
 const float32_t firCoeffs32[NUM_TAPS] = {
-		0.0000, -0.0035, -0.0039, 0.0072, 0.0201,
-		0.0000, -0.0517, -0.0506, 0.0855, 0.2965,
-		0.4008, 0.2965, 0.0855, -0.0506, -0.0517,
-		0.0000, 0.0201, 0.0072, -0.0039, -0.0035,
-		0.0000
+		0.0, -0.00212227114882539, -0.00632535399151418, -0.0116118103776210, -0.0123546567489824,
+		0.0, 0.0317744975585673, 0.0814359075642177, 0.137493781701943, 0.182125490388735,
+		0.199168830106960, 0.182125490388735, 0.137493781701943, 0.0814359075642177, 0.0317744975585673,
+		0.0, -0.0123546567489824, -0.0116118103776210, -0.00632535399151418, -0.00212227114882539,
+		0.0
 };
 
 /* ----------------------------------------------------------------------
@@ -110,8 +111,8 @@ void process_measurements(void) {
 	}
 
 	debug_printf("START\n\r");
-	for (int i = 0; i < SAMPLES; i++) {
-		debug_printf("%f, ", vibrationOutput[i]);
+	for (int i = 0; i < 105; i++) {
+		debug_printf("%d, ", vibrationOutput[i]);
 	}
 	debug_printf("DONE\n\r");
 	BRD_button_unpush();
@@ -174,10 +175,19 @@ void vibe_fft(void) {
 	arm_cfft_radix4_f32(&Signal, fftInput);
 
 	/* Process the data through the Complex Magnitude Module for calculating the magnitude at each bin */
-	arm_cmplx_mag_f32(fftInput, vibrationOutput, FFT_SIZE);
+	arm_cmplx_mag_f32(fftInput, fftOutput, FFT_SIZE);
+
+	/* Set up package of 100 samples*/
+	for (int i = 0; i < 105; i++) {
+		vibrationOutput[i] = (uint8_t)(fftOutput[i]/256);
+	}
+	/* Remove DC - 50Hz frequency content */
+	for (int i = 0; i < 5; i++) {
+		vibrationOutput[i] = 0;
+	}
 
 	/* Calculates maxValue and returns corresponding value */
-	arm_max_f32(vibrationOutput, FFT_SIZE, &maxValue, &maxIndex);
+	arm_max_f32(fftOutput, FFT_SIZE, &maxValue, &maxIndex);
 }
 
 
@@ -197,9 +207,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			return;
 		}
 
-		/* Capture ADC samples */
-		ADC_fill_buffer(sample);
-
-		sample++;
+		if (measureMode != VIBE_DONE) {
+			/* Capture ADC samples */
+			ADC_fill_buffer(sample);
+			sample++;
+		}
 	}
 }
